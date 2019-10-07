@@ -41,7 +41,6 @@ class Sigmoid(Layer):
     def forward(self, input):
         output = 1./(1.+np.exp(-input))
         self._saved_for_backward(output)
-        #print(self.output)
         return output
 
     def backward(self, grad_output):
@@ -52,6 +51,7 @@ class Linear(Layer):
         super(Linear, self).__init__(name, trainable=True)
         self.in_num = in_num
         self.out_num = out_num
+        
         self.W = np.random.randn(in_num, out_num) * init_std
         self.b = np.zeros(out_num)
 
@@ -70,8 +70,8 @@ class Linear(Layer):
 
     def backward(self, grad_output):
         local_grad = grad_output.dot(self.W.T)
-        self.grad_W = -self._saved_tensor.T.dot(grad_output) 
-        self.grad_b = -grad_output.sum(axis=0)
+        self.grad_W = self._saved_tensor.T.dot(grad_output) 
+        self.grad_b = grad_output.sum(axis=0)
         return local_grad
         
     def update(self, config):
@@ -80,12 +80,11 @@ class Linear(Layer):
         wd = config['weight_decay']
 
         self.diff_W = mm * self.diff_W + (self.grad_W + wd * self.W)
-        #print(self.diff_W)
         self.W = self.W - lr * self.diff_W
-        #print(self.W)
-        #print("grad", self.grad_W)
-
 
         self.diff_b = mm * self.diff_b + (self.grad_b + wd * self.b)
-        #print(self.b)
         self.b = self.b - lr * self.diff_b
+
+
+
+
