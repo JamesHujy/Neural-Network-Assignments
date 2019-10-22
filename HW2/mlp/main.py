@@ -86,11 +86,13 @@ with tf.Session() as sess:
         X_train, X_test, y_train, y_test = load_cifar_2d(FLAGS.data_dir)
         X_val, y_val = X_train[40000:], y_train[40000:]
         X_train, y_train = X_train[:40000], y_train[:40000]
-        mlp_model = Model(batch_norm=False)
+        mlp_model = Model(batch_norm=True)
+        '''
         if tf.train.get_checkpoint_state(FLAGS.train_dir):
             mlp_model.saver.restore(sess, tf.train.latest_checkpoint(FLAGS.train_dir))
         else:
-            tf.global_variables_initializer().run()
+        '''
+        tf.global_variables_initializer().run()
 
         pre_losses = [1e18] * 3
         best_val_acc = 0.0

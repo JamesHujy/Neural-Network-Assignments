@@ -11,6 +11,7 @@ tf.app.flags.DEFINE_integer("batch_size", 100, "batch size for training")
 tf.app.flags.DEFINE_integer("num_epochs", 20, "number of epochs")
 tf.app.flags.DEFINE_float("drop_rate", 0.5, "drop out rate")
 tf.app.flags.DEFINE_boolean("is_train", True, "False to inference")
+tf.app.flags.DEFINE_boolean("is_BN", True, "Whether to use batch normalization")
 tf.app.flags.DEFINE_string("device", '4', "GPU index")
 tf.app.flags.DEFINE_string("data_dir", "../cifar-10_data", "data dir")
 tf.app.flags.DEFINE_string("train_dir", "./train", "training dir")
@@ -91,11 +92,13 @@ with tf.Session(config=config) as sess:
         X_train, X_test, y_train, y_test = load_cifar_4d(FLAGS.data_dir)
         X_val, y_val = X_train[40000:], y_train[40000:]
         X_train, y_train = X_train[:40000], y_train[:40000]
-        cnn_model = Model(dropout=FLAGS.drop_rate)
+        cnn_model = Model(dropout=FLAGS.drop_rate, batch_norm=FLAGS.is_BN)
+        '''
         if tf.train.get_checkpoint_state(FLAGS.train_dir):
             cnn_model.saver.restore(sess, tf.train.latest_checkpoint(FLAGS.train_dir))
         else:
-            tf.global_variables_initializer().run()
+        '''
+        tf.global_variables_initializer().run()
 
         pre_losses = [1e18] * 3
         best_val_acc = 0.0
