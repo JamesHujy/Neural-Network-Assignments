@@ -11,6 +11,7 @@ tf.app.flags.DEFINE_integer("batch_size", 100, "batch size for training")
 tf.app.flags.DEFINE_integer("num_epochs", 20, "number of epochs")
 tf.app.flags.DEFINE_float("drop_rate", 0.5, "drop out rate")
 tf.app.flags.DEFINE_boolean("is_train", True, "False to inference")
+tf.app.flags.DEFINE_string("device", '4', "GPU index")
 tf.app.flags.DEFINE_string("data_dir", "../cifar-10_data", "data dir")
 tf.app.flags.DEFINE_string("train_dir", "./train", "training dir")
 tf.app.flags.DEFINE_integer("inference_version", 0, "the version for inference")
@@ -39,47 +40,58 @@ def shuffle(X, y, shuffle_parts):
 def train_epoch(model, sess, X, y): # Training Process
     loss, acc = 0.0, 0.0
     st, ed, times = 0, FLAGS.batch_size, 0
+    loss_list = []
+    acc_list = []
     while st < len(X) and ed <= len(X):
         X_batch, y_batch = X[st:ed], y[st:ed]
         feed = {model.x_: X_batch, model.y_: y_batch}
         loss_, acc_, _ = sess.run([model.loss, model.acc, model.train_op], feed)
+        loss_list.append(loss_)
+        acc_list.append(acc_)
         loss += loss_
         acc += acc_
         st, ed = ed, ed+FLAGS.batch_size
         times += 1
     loss /= times
     acc /= times
-    return acc, loss
+    return acc, loss, acc_list, loss_list
 
 
 def valid_epoch(model, sess, X, y): # Valid Process
     loss, acc = 0.0, 0.0
     st, ed, times = 0, FLAGS.batch_size, 0
+    loss_list = []
+    acc_list = []
     while st < len(X) and ed <= len(X):
         X_batch, y_batch = X[st:ed], y[st:ed]
         feed = {model.x_: X_batch, model.y_: y_batch}
         loss_, acc_ = sess.run([model.loss_val, model.acc_val], feed)
+        loss_list.append(loss_)
+        acc_list.append(acc_)
         loss += loss_
         acc += acc_
         st, ed = ed, ed+FLAGS.batch_size
         times += 1
     loss /= times
     acc /= times
-    return acc, loss
+    return acc, loss, acc_list, loss_list
 
 
 def inference(model, sess, X): # Test Process
     return sess.run([model.pred_val], {model.x_: X})[0]
 
+config = tf.ConfigProto(log_device_placement=True)
+os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.device
+config.gpu_options.allow_growth = True
 
-with tf.Session() as sess:
+with tf.Session(config=config) as sess:
     if not os.path.exists(FLAGS.train_dir):
         os.mkdir(FLAGS.train_dir)
     if FLAGS.is_train:
         X_train, X_test, y_train, y_test = load_cifar_4d(FLAGS.data_dir)
         X_val, y_val = X_train[40000:], y_train[40000:]
         X_train, y_train = X_train[:40000], y_train[:40000]
-        cnn_model = Model()
+        cnn_model = Model(dropout=FLAGS.drop_rate)
         if tf.train.get_checkpoint_state(FLAGS.train_dir):
             cnn_model.saver.restore(sess, tf.train.latest_checkpoint(FLAGS.train_dir))
         else:
@@ -87,17 +99,27 @@ with tf.Session() as sess:
 
         pre_losses = [1e18] * 3
         best_val_acc = 0.0
+        print("training....")
+        train_loss_list = []
+        train_acc_list = []
+        val_loss_list = []
+        val_acc_list = []
         for epoch in range(FLAGS.num_epochs):
             start_time = time.time()
-            train_acc, train_loss = train_epoch(cnn_model, sess, X_train, y_train)
+            train_acc, train_loss, _train_acc_list, _train_loss_list = train_epoch(cnn_model, sess, X_train, y_train)
+            train_loss_list.extend(_train_loss_list)
+            train_acc_list.extend(_train_acc_list)
+
             X_train, y_train = shuffle(X_train, y_train, 1)
 
-            val_acc, val_loss = valid_epoch(cnn_model, sess, X_val, y_val)
+            val_acc, val_loss , _val_acc_list, _val_loss_list = valid_epoch(cnn_model, sess, X_val, y_val)
+            val_loss_list.extend(_val_loss_list)
+            val_acc_list.extend(_val_acc_list)
 
             if val_acc >= best_val_acc:
                 best_val_acc = val_acc
                 best_epoch = epoch + 1
-                test_acc, test_loss = valid_epoch(cnn_model, sess, X_test, y_test)
+                test_acc, test_loss, _test_acc_list, _test_loss_list = valid_epoch(cnn_model, sess, X_test, y_test)
                 cnn_model.saver.save(sess, '%s/checkpoint' % FLAGS.train_dir, global_step=cnn_model.global_step)
 
             epoch_time = time.time() - start_time
@@ -115,7 +137,13 @@ with tf.Session() as sess:
             if train_loss > max(pre_losses):
                 sess.run(cnn_model.learning_rate_decay_op)
             pre_losses = pre_losses[1:] + [train_loss]
-
+        path = './train_info/'
+        if not os.path.exists(path):
+            os.makedirs(path)
+        np.save(path+'dropout_'+str(FLAGS.drop_rate)+'_train_loss.npy', np.array(train_loss_list))
+        np.save(path+'dropout_'+str(FLAGS.drop_rate)+'_train_acc.npy', np.array(train_acc_list))
+        np.save(path+'dropout_'+str(FLAGS.drop_rate)+'_val_loss.npy', np.array(val_loss_list))
+        np.save(path+'dropout_'+str(FLAGS.drop_rate)+'_val_acc.npy', np.array(val_acc_list))
     else:
         cnn_model = Model()
         if FLAGS.inference_version == 0:
