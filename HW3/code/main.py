@@ -5,6 +5,7 @@ import sys
 import json
 import time
 import random
+import os
 random.seed(1229)
 
 from model import RNN, _START_VOCAB
@@ -16,13 +17,16 @@ tf.app.flags.DEFINE_float("learning_rate", 0.005, "Number of labels.")
 tf.app.flags.DEFINE_integer("epoch", 20, "Number of epoch.")
 tf.app.flags.DEFINE_integer("embed_units", 300, "Size of word embedding.")
 tf.app.flags.DEFINE_integer("units", 512, "Size of each model layer.")
+tf.app.flags.DEFINE_string("device", '4', "GPU index")
 tf.app.flags.DEFINE_integer("layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_integer("batch_size", 16, "Batch size to use during training.")
 tf.app.flags.DEFINE_string("data_dir", "./data", "Data directory")
-tf.app.flags.DEFINE_string("train_dir", "./train", "Training directory.")
+tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
 tf.app.flags.DEFINE_integer("per_checkpoint", 1000, "How many steps to do per checkpoint.")
 tf.app.flags.DEFINE_integer("inference_version", 0, "The version for inferencing.")
 tf.app.flags.DEFINE_boolean("log_parameters", True, "Set to True to show the parameters")
+tf.app.flags.DEFINE_string("rnn_type", 'LSTM', "Type of RNN layer")
+tf.app.flags.DEFINE_boolean("self_attention", True, "Set to True to use self attention")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -122,13 +126,19 @@ def inference(model, sess, dataset):
             f.write('%d\n' % label)
 
 config = tf.ConfigProto()
+os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.device
 config.gpu_options.allow_growth = True
 with tf.Session(config=config) as sess:
+    if FLAGS.self_attention:
+        train_dir = FLAGS.rnn_type+'_'+FLAGS.train_dir
+    else:
+        train_dir = "no_attention_" + FLAGS.rnn_type+'_'+FLAGS.train_dir
     if FLAGS.is_train:
         print(FLAGS.__flags)
         data_train = load_data(FLAGS.data_dir, 'train.txt')
         data_dev = load_data(FLAGS.data_dir, 'dev.txt')
         vocab, embed = build_vocab(FLAGS.data_dir, data_train)
+        
         
         model = RNN(
                 FLAGS.symbols, 
@@ -137,13 +147,16 @@ with tf.Session(config=config) as sess:
                 FLAGS.layers,
                 FLAGS.labels,
                 embed,
-                learning_rate=FLAGS.learning_rate)
+                learning_rate=FLAGS.learning_rate,
+                rnn_type=FLAGS.rnn_type,
+                self_attention=FLAGS.self_attention)
         if FLAGS.log_parameters:
             model.print_parameters()
         
-        if tf.train.get_checkpoint_state(FLAGS.train_dir):
-            print("Reading model parameters from %s" % FLAGS.train_dir)
-            model.saver.restore(sess, tf.train.latest_checkpoint(FLAGS.train_dir))
+        print("train_dir"+train_dir)
+        if tf.train.get_checkpoint_state(train_dir):
+            print("Reading model parameters from %s" % train_dir)
+            model.saver.restore(sess, tf.train.latest_checkpoint(train_dir))
         else:
             print("Created model with fresh parameters.")
             tf.global_variables_initializer().run()
@@ -151,14 +164,38 @@ with tf.Session(config=config) as sess:
                 constant_op.constant(list(range(FLAGS.symbols)), dtype=tf.int64))
             sess.run(op_in)
 
+        train_loss = []
+        train_acc = []
+        val_loss = []
+        val_acc = []
+
         for epoch in list(range(FLAGS.epoch)):
             random.shuffle(data_train)
             start_time = time.time()
             loss, accuracy = train(model, sess, data_train)
+            train_loss.append(loss)
+            train_acc.append(accuracy)
             print("epoch %d learning rate %.4f epoch-time %.4f loss %.8f accuracy [%.8f]" % (epoch, model.learning_rate.eval(), time.time()-start_time, loss, accuracy))
-            model.saver.save(sess, '%s/checkpoint' % FLAGS.train_dir, global_step=epoch)
+            model.saver.save(sess, '%s/checkpoint' % train_dir, global_step=epoch)
             loss, accuracy = evaluate(model, sess, data_dev)
+            val_loss.append(loss)
+            val_acc.append(accuracy)
             print("        dev_set, loss %.8f, accuracy [%.8f]" % (loss, accuracy))
+        train_loss = np.array(train_loss)
+        train_acc = np.array(train_acc)
+        val_loss = np.array(val_loss)
+        val_acc = np.array(val_acc)
+
+        if FLAGS.self_attention:
+            np.save(FLAGS.rnn_type+'train_loss',train_loss)
+            np.save(FLAGS.rnn_type+'train_acc',train_acc)
+            np.save(FLAGS.rnn_type+'val_loss',val_loss)
+            np.save(FLAGS.rnn_type+'val_acc',val_acc)
+        else:
+            np.save("no_attention_"+FLAGS.rnn_type+'train_loss',train_loss)
+            np.save("no_attention_"+FLAGS.rnn_type+'train_acc',train_acc)
+            np.save("no_attention_"+FLAGS.rnn_type+'val_loss',val_loss)
+            np.save("no_attention_"+FLAGS.rnn_type+'val_acc',val_acc)
     else:
         data_dev = load_data(FLAGS.data_dir, 'dev.txt')
         data_test = load_data(FLAGS.data_dir, 'test.txt')
@@ -169,12 +206,14 @@ with tf.Session(config=config) as sess:
                 FLAGS.units, 
                 FLAGS.layers,
                 FLAGS.labels,
+                rnn_type=FLAGS.rnn_type,
                 embed=None)
 
+        print()
         if FLAGS.inference_version == 0:
-            model_path = tf.train.latest_checkpoint(FLAGS.train_dir)
+            model_path = tf.train.latest_checkpoint(train_dir)
         else:
-            model_path = '%s/checkpoint-%08d' % (FLAGS.train_dir, FLAGS.inference_version)
+            model_path = '%s/checkpoint-%08d' % (train_dir, FLAGS.inference_version)
         print('restore from %s' % model_path)
         model.saver.restore(sess, model_path)
 

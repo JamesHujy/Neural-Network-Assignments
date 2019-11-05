@@ -404,10 +404,10 @@ class BasicLSTMCell(RNNCell):
             c, h = array_ops.split(value=state, num_or_size_splits=2, axis=1)
 
         concats = _linear([inputs, h], 4 * self._num_units, True)
-        input_gate, new_input, forget_gate, output_gate = array_ops.split(value=concats, num_or_size_splits=1, axis=, axis=1)
+        input_gate, new_input, forget_gate, output_gate = array_ops.split(value=concats, num_or_size_splits=4, axis=1)
 
         #todo: calculate new_c and new_h according to LSTM
-        new_c = (c * sigmoid(f + self._forget_bias) + sigmoid(input_gate) * self._activation(new_input))
+        new_c = (c * sigmoid(forget_gate + self._forget_bias) + sigmoid(input_gate) * self._activation(new_input))
         new_h = self._activation(new_c) * sigmoid(output_gate)
 
         if self._state_is_tuple:
