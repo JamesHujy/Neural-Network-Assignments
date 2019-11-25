@@ -5,6 +5,7 @@ import sys
 import argparse
 import tensorflow as tf
 import numpy as np
+from tqdm import tqdm
 
 from custom_vgg16_bn import Model
 from dataset import Dataset
@@ -26,15 +27,17 @@ def get_dataset_batch(ds_name):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--nr_epoch", type=int, default=500,  help="you may need to increase nr_epoch to 4000 or more for targeted adversarial attacks")
-    parser.add_argument("--alpha", type=float, default=0, help="coefficient of either cross entropy loss or C&W attack loss")
+    parser.add_argument("--alpha", type=float, default=1, help="coefficient of either cross entropy loss or C&W attack loss")
     parser.add_argument("--beta", type=float, default=0, help="coefficient of lasso regularization")
     parser.add_argument("--gamma", type=float, default=0, help="coefficient of ridge regularization")
-    parser.add_argument("--CW_kappa", type=float, default=0, help="hyperparameter for C&W attack loss")
+    parser.add_argument("--CW_kappa", type=float, default=0.2, help="hyperparameter for C&W attack loss")
     parser.add_argument("--use_cross_entropy_loss", action='store_true')
     parser.add_argument("--targeted_attack", action='store_true')
+    parser.add_argument("--device",type=str, default='0', help="choose the gpu")
     args = parser.parse_args()
 
     ## load dataset
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.device
     train_batch_gnr, train_set = get_dataset_batch(ds_name='train')
 
     data = tf.placeholder(tf.float32, shape=(None,) + config.image_shape + (config.nr_channel, ), name='data')
@@ -64,7 +67,7 @@ def main():
     train_writer = tf.summary.FileWriter(os.path.join(config.log_dir, 'tf_log', 'train'), tf.get_default_graph())
 
     ## create a session
-    tf.set_random_seed(12345) # ensure consistent results
+    tf.set_random_seed(3270) # ensure consistent results
     succ = 0
     noise_l1 = 0
     noise_l2 = 0
@@ -73,7 +76,8 @@ def main():
     with tf.Session() as sess:
 
         assert train_set.minibatch_size == 1
-        for idx in range(train_set.minibatches):
+        print("Training.....")
+        for idx in tqdm(range(train_set.minibatches)):
             global_cnt = 0
 
             sess.run(tf.global_variables_initializer()) # init all variables
@@ -103,6 +107,7 @@ def main():
                 _, accuracy, loss_batch, adv_examples, summary = sess.run([train, acc, loss, adv, merged],
                                                                        feed_dict=feed_dict)
 
+                '''
                 if global_cnt % config.show_interval == 0:
                     train_writer.add_summary(summary, global_cnt)
                     print(
@@ -110,6 +115,7 @@ def main():
                         'loss: {:.3f}'.format(loss_batch),
                         'acc: {:3f}'.format(accuracy),
                     )
+                '''
 
                 successful = acc_gt.eval(feed_dict={placeholders['data']: adv_examples, placeholders['gt']: labels}) > 0.5 if args.targeted_attack else acc_gt.eval(feed_dict={placeholders['data']: adv_examples, placeholders['gt']: gt}) < 0.5
 
@@ -123,7 +129,7 @@ def main():
                         min_l2 = min(min_l2, np.sqrt(l2_square))
                         min_linf = min(min_linf, np.max((adv_examples - images) / 255))
 
-            print('Training for batch {} is done'.format(idx))
+            #print('Training for batch {} is done'.format(idx))
             sys.stdout.flush()
 
             if min_distortion != np.inf:
@@ -135,10 +141,12 @@ def main():
             if not attr.startswith("_"):
                 print("{}: {}".format(attr, getattr(args, attr)))
         print('Success rate: {}'.format(succ / tot))
-        print('Noise l1-norm: {}'.format(noise_l1 / tot))
-        print('Noise l2-norm: {}'.format(noise_l2 / tot))
-        print('Noise l-inf: {}'.format(noise_l_inf / tot))
+        print('Noise l1-norm: {}'.format(noise_l1 / succ))
+        print('Noise l2-norm: {}'.format(noise_l2 / succ))
+        print('Noise l-inf: {}'.format(noise_l_inf / succ))
         sys.stdout.flush()
 
+
 if __name__ == "__main__":
+    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     main()
